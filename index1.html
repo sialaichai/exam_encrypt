@@ -435,6 +435,32 @@
             tableBody.innerHTML = '';
             data.slice(0, 500).forEach(r => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${r.filename}</td><td>${r.year}</td><td>${r.jc}</td><td>${r.paper}</td><td>${r.
+                tr.innerHTML = `<td>${r.filename}</td><td>${r.year}</td><td>${r.jc}</td><td>${r.paper}</td><td>${r.question}</td><td>${r.mainTopic}</td><td>${r.otherTopics.join(', ')}</td>`;
+                
+                tr.addEventListener('click', async () => {
+                    try {
+                        pdfViewer.srcdoc = "<html><body style='background:#525659;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;'><h2>Decrypting PDF... Please wait.</h2></body></html>";
+                        const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${r.year}/${r.filename}`);
+                        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+                        if (pdfViewer.src.startsWith('blob:')) URL.revokeObjectURL(pdfViewer.src);
+                        pdfViewer.removeAttribute('srcdoc');
+                        pdfViewer.src = blobUrl;
+                    } catch(e) {
+                        pdfViewer.srcdoc = `<html><body style='color:red;'><h2>${e.message}</h2></body></html>`;
+                    }
+                });
+                tableBody.appendChild(tr);
+            });
+            fileCountDisplay.textContent = `${data.length} files found`;
+        }
+
+        const dragger = document.getElementById('dragger');
+        const lowerPanel = document.getElementById('lower-panel');
+        let isD = false;
+        dragger.addEventListener('mousedown', () => { isD = true; pdfViewer.style.pointerEvents = 'none'; });
+        document.addEventListener('mouseup', () => { isD = false; pdfViewer.style.pointerEvents = 'auto'; });
+        document.addEventListener('mousemove', (e) => { if(isD) lowerPanel.style.height = `${window.innerHeight - e.clientY}px`; });
+    }
+</script>
 </body>
 </html>
