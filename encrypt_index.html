@@ -6,7 +6,7 @@
     <title>Prelim Chew Viewer (Encrypted)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js?v=1.0.1"></script>
 	<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+	< src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></>
     <style>
         /* Styles remain identical to original index (1).html */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; overflow: hidden; }
@@ -208,10 +208,11 @@
         }, 100);
     }
 
+    // Global Decryption Helper
     async function fetchAndDecrypt(url) {
         const pass = sessionStorage.getItem('prelim_session_key');
         const response = await fetch(url);
-        if (!response.ok) throw new Error("File not found on server.");
+        if (!response.ok) throw new Error("File not found on server: " + url);
         
         const encryptedData = await response.text();
         try {
@@ -225,8 +226,7 @@
             }
             return typedArray;
         } catch (e) {
-            alert("Decryption Error: Make sure your login password is correct.");
-            throw e;
+            throw new Error("Decryption failed for " + url);
         }
     }
 
@@ -256,10 +256,10 @@
         });
 
         let currentFilteredData = [...allData]; 
-        let currentSort = { column: 1, asc: false }; // Default: Year Descending
+        let currentSort = { column: 1, asc: false }; 
         const baseHeaders = ['Filename', 'Year', 'JC', 'Paper', 'Question', 'Main Topic', 'Other Topics'];
 
-        // FIX: Re-attach sorting listeners to headers
+        // Restore Sorting Listeners for all headers
         const headers = document.querySelectorAll('#data-table th');
         headers.forEach((th, index) => {
             th.addEventListener('click', () => {
@@ -267,7 +267,7 @@
                     currentSort.asc = !currentSort.asc;
                 } else {
                     currentSort.column = index;
-                    currentSort.asc = (index === 1) ? false : true; // Years desc by default, others asc
+                    currentSort.asc = (index === 1) ? false : true;
                 }
                 renderTable(currentFilteredData);
             });
@@ -309,14 +309,13 @@
                     btn.children[0].textContent = set.size; panel.style.display = 'none'; applyFilters(data);
                 });
             };
-            // ... [Filter setup calls remain the same] ...
             setup('topic-filter-btn', 'topic-filter-panel', 'topic-filter-list', 'topic-filter-apply', selectedTopics, 'topic-checkbox');
             setup('year-filter-btn', 'year-filter-panel', 'year-filter-list', 'year-filter-apply', selectedYears, 'year-checkbox');
             setup('jc-filter-btn', 'jc-filter-panel', 'jc-filter-list', 'jc-filter-apply', selectedJCs, 'jc-checkbox');
             setup('paper-filter-btn', 'paper-filter-panel', 'paper-filter-list', 'paper-filter-apply', selectedPapers, 'paper-checkbox');
             setup('question-filter-btn', 'question-filter-panel', 'question-filter-list', 'question-filter-apply', selectedQuestions, 'question-checkbox');
+            setup('topic-filter-btn', 'topic-filter-panel', 'topic-filter-list', 'topic-filter-apply', selectedTopics, 'topic-checkbox');
 
-            // HTML/PDF/ZIP buttons logic as previously provided...
             const bytesToBase64 = (bytes) => {
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -325,18 +324,59 @@
                 });
             };
 
+            // RESTORED: HTML Report
             document.getElementById('generate-html-btn').addEventListener('click', async () => {
                 const rows = Array.from(tableBody.querySelectorAll('tr'));
-                if (rows.length === 0) return alert("No files to export.");
+                if (rows.length === 0) return alert("No files in table.");
+                if (rows.length > 30 && !confirm("Processing many files may take a while. Proceed?")) return;
                 try {
                     let html = `<html><head><style>body{font-family:sans-serif;background:#f4f4f4;padding:20px;}.pdf-section{margin-bottom:40px;background:#fff;padding:15px;border-radius:8px;}embed{width:100%;height:800px;}</style></head><body><h1>Report</h1>`;
                     for (let r of rows) {
-                        const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${r.cells[1].textContent}/${r.cells[0].textContent}`);
+                        const fname = r.cells[0].textContent, year = r.cells[1].textContent;
+                        const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${year}/${fname}`);
                         const b64 = await bytesToBase64(bytes);
-                        html += `<div class='pdf-section'><h3>${r.cells[0].textContent}</h3><embed src='data:application/pdf;base64,${b64}' type='application/pdf' /></div>`;
+                        html += `<div class='pdf-section'><h3>${fname}</h3><embed src='data:application/pdf;base64,${b64}' type='application/pdf' /></div>`;
                     }
                     html += `</body></html>`;
-                    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html],{type:'text/html'})); a.download='report.html'; a.click();
+                    const blob = new Blob([html], { type: 'text/html' });
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'report.html'; a.click();
+                } catch(e) { alert(e.message); }
+            });
+
+            // RESTORED: PDF Merge
+            document.getElementById('merge-pdf-btn').addEventListener('click', async () => {
+                const rows = Array.from(tableBody.querySelectorAll('tr'));
+                if (rows.length === 0) return alert("No files to merge.");
+                try {
+                    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+                    const mergedPdf = await PDFDocument.create();
+                    const font = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+                    for (let r of rows) {
+                        const fname = r.cells[0].textContent, year = r.cells[1].textContent;
+                        const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${year}/${fname}`);
+                        const sourcePdf = await PDFDocument.load(bytes);
+                        const bannerPage = mergedPdf.addPage([sourcePdf.getPages()[0].getSize().width, 30]);
+                        bannerPage.drawText(`File: ${fname}`, { x: 15, y: 10, size: 10, font: font, color: rgb(0.1, 0.1, 0.1) });
+                        (await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices())).forEach(p => mergedPdf.addPage(p));
+                    }
+                    const pdfBytes = await mergedPdf.save();
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([pdfBytes],{type:'application/pdf'})); a.download = 'merged_decrypted.pdf'; a.click();
+                } catch(e) { alert(e.message); }
+            });
+
+            // RESTORED: ZIP Download
+            document.getElementById('download-zip-btn').addEventListener('click', async () => {
+                const rows = Array.from(tableBody.querySelectorAll('tr'));
+                if (rows.length === 0) return alert("No files to ZIP.");
+                try {
+                    const zip = new JSZip();
+                    for (let r of rows) {
+                        const fname = r.cells[0].textContent, year = r.cells[1].textContent;
+                        const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${year}/${fname}`);
+                        zip.file(fname, bytes);
+                    }
+                    const content = await zip.generateAsync({ type: "blob" });
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(content); a.download = 'decrypted_papers.zip'; a.click();
                 } catch(e) { alert(e.message); }
             });
         }
@@ -356,26 +396,22 @@
         }
 
         function renderTable(data) {
-            // Update Arrows
+            // Update UI Arrows
             const headers = document.querySelectorAll('#data-table th');
             headers.forEach((th, index) => {
                 th.textContent = baseHeaders[index] + (currentSort.column === index ? (currentSort.asc ? ' ▲' : ' ▼') : '');
             });
 
-            // Sorting Logic
+            // Sorting
             data.sort((a, b) => {
                 const keys = ['filename', 'year', 'jc', 'paper', 'question', 'mainTopic', 'otherTopics'];
                 const key = keys[currentSort.column];
                 let valA = a[key], valB = b[key];
-
                 if (key === 'year') {
                     valA = parseInt(valA) || 0; valB = parseInt(valB) || 0;
                     return currentSort.asc ? valA - valB : valB - valA;
                 }
-                
-                return currentSort.asc 
-                    ? String(valA).localeCompare(String(valB), undefined, { numeric: true }) 
-                    : String(valB).localeCompare(String(valA), undefined, { numeric: true });
+                return currentSort.asc ? String(valA).localeCompare(String(valB), undefined, { numeric: true }) : String(valB).localeCompare(String(valA), undefined, { numeric: true });
             });
 
             tableBody.innerHTML = '';
@@ -385,17 +421,14 @@
                 
                 tr.addEventListener('click', async () => {
                     try {
-                        // Visual feedback
                         pdfViewer.srcdoc = "<html><body style='background:#525659;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;'><h2>Decrypting PDF... Please wait.</h2></body></html>";
-                        
-                        const decryptedBytes = await fetchAndDecrypt(`${PDF_FOLDER}/${r.year}/${r.filename}`);
-                        const blobUrl = URL.createObjectURL(new Blob([decryptedBytes], { type: 'application/pdf' }));
-                        
+                        const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${r.year}/${r.filename}`);
+                        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
                         if (pdfViewer.src.startsWith('blob:')) URL.revokeObjectURL(pdfViewer.src);
                         pdfViewer.removeAttribute('srcdoc');
                         pdfViewer.src = blobUrl;
                     } catch(e) {
-                        pdfViewer.srcdoc = `<html><body style='color:red;'><h2>Error: ${e.message}</h2></body></html>`;
+                        pdfViewer.srcdoc = `<html><body style='color:red;'><h2>${e.message}</h2></body></html>`;
                     }
                 });
                 tableBody.appendChild(tr);
@@ -403,7 +436,6 @@
             fileCountDisplay.textContent = `${data.length} files found`;
         }
 
-        // Dragger
         const dragger = document.getElementById('dragger');
         const lowerPanel = document.getElementById('lower-panel');
         let isD = false;
