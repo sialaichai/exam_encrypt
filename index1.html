@@ -108,7 +108,16 @@
                 <button id="download-zip-btn" style="background-color: #ff9800; color: white; padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 14px;">ZIP</button>
 				<span id="file-count-display"></span>
             </div>
-            <div id="pdf-viewer-container"><iframe id="pdf-viewer" src="" frameborder="0"></iframe></div>
+         <div id="pdf-viewer-container" style="display: flex; flex-direction: column; height: 100%;">
+    <div id="pdf-header" style="display: none; background: #2c3e50; color: white; padding: 10px 15px; justify-content: space-between; align-items: center; font-family: sans-serif; flex-shrink: 0;">
+        <span id="pdf-title" style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Loading...</span>
+        <button id="pdf-download-btn" style="background: #27ae60; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; display: none;">
+            💾 Download Original
+        </button>
+    </div>
+    
+    <iframe id="pdf-viewer" src="" frameborder="0" style="flex-grow: 1; width: 100%; border: none;"></iframe>
+</div>
         </div>
 
         <div id="dragger"></div>
@@ -243,6 +252,12 @@
         const pdfViewer = document.getElementById('pdf-viewer');
         const fileCountDisplay = document.getElementById('file-count-display');
         
+        // Custom header elements for PDF names
+        const pdfHeader = document.getElementById('pdf-header');
+        const pdfTitle = document.getElementById('pdf-title');
+        const pdfDownloadBtn = document.getElementById('pdf-download-btn');
+        let currentBlobUrl = null;
+        
         // Clean Data
         allData = allData.map(item => {
             let q = (item.question || '').trim();
@@ -325,9 +340,12 @@
             setup('question-filter-btn', 'question-filter-panel', 'question-filter-list', 'question-filter-apply', selectedQuestions, 'question-checkbox');
 
             // 2. Fix "Other Topics" Checkbox Refresh
-            document.getElementById('include-other-topics').addEventListener('change', () => {
-                applyFilters(data);
-            });
+            const includeOtherTopicsBox = document.getElementById('include-other-topics');
+            if (includeOtherTopicsBox) {
+                includeOtherTopicsBox.addEventListener('change', () => {
+                    applyFilters(data);
+                });
+            }
 
             const bytesToBase64 = (bytes) => {
                 return new Promise((resolve) => {
@@ -398,7 +416,8 @@
         function applyFilters(data) {
             let fd = [...data];
             if (selectedTopics.size > 0) {
-                const includeOther = document.getElementById('include-other-topics').checked;
+                const includeOtherBox = document.getElementById('include-other-topics');
+                const includeOther = includeOtherBox ? includeOtherBox.checked : false;
                 fd = fd.filter(item => selectedTopics.has(item.mainTopic) || (includeOther && item.otherTopics.some(t => selectedTopics.has(t))));
             }
             if (selectedYears.size > 0) fd = fd.filter(i => selectedYears.has(i.year));
@@ -439,13 +458,43 @@
                 
                 tr.addEventListener('click', async () => {
                     try {
+                        // Title bar updates
+                        if (pdfHeader && pdfTitle && pdfDownloadBtn) {
+                            pdfHeader.style.display = 'flex';
+                            pdfTitle.textContent = `Decrypting: ${r.filename} ...`;
+                            pdfDownloadBtn.style.display = 'none';
+                        }
+
                         pdfViewer.srcdoc = "<html><body style='background:#525659;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;'><h2>Decrypting PDF... Please wait.</h2></body></html>";
+                        
                         const bytes = await fetchAndDecrypt(`${PDF_FOLDER}/${r.year}/${r.filename}`);
                         const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-                        if (pdfViewer.src.startsWith('blob:')) URL.revokeObjectURL(pdfViewer.src);
+                        
+                        // Clear old blob URL to prevent memory leaks
+                        if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+                        currentBlobUrl = blobUrl;
+
                         pdfViewer.removeAttribute('srcdoc');
                         pdfViewer.src = blobUrl;
+
+                        // Display original name and activate the force-download button
+                        if (pdfHeader && pdfTitle && pdfDownloadBtn) {
+                            pdfTitle.textContent = r.filename;
+                            pdfDownloadBtn.style.display = 'block';
+                            
+                            pdfDownloadBtn.onclick = () => {
+                                const a = document.createElement('a');
+                                a.href = currentBlobUrl;
+                                a.download = r.filename; 
+                                a.click();
+                            };
+                        }
+
                     } catch(e) {
+                        if (pdfHeader && pdfTitle && pdfDownloadBtn) {
+                            pdfTitle.textContent = `Failed to load: ${r.filename}`;
+                            pdfDownloadBtn.style.display = 'none';
+                        }
                         pdfViewer.srcdoc = `<html><body style='color:red;'><h2>${e.message}</h2></body></html>`;
                     }
                 });
@@ -456,10 +505,12 @@
 
         const dragger = document.getElementById('dragger');
         const lowerPanel = document.getElementById('lower-panel');
-        let isD = false;
-        dragger.addEventListener('mousedown', () => { isD = true; pdfViewer.style.pointerEvents = 'none'; });
-        document.addEventListener('mouseup', () => { isD = false; pdfViewer.style.pointerEvents = 'auto'; });
-        document.addEventListener('mousemove', (e) => { if(isD) lowerPanel.style.height = `${window.innerHeight - e.clientY}px`; });
+        if (dragger && lowerPanel) {
+            let isD = false;
+            dragger.addEventListener('mousedown', () => { isD = true; pdfViewer.style.pointerEvents = 'none'; });
+            document.addEventListener('mouseup', () => { isD = false; pdfViewer.style.pointerEvents = 'auto'; });
+            document.addEventListener('mousemove', (e) => { if(isD) lowerPanel.style.height = `${window.innerHeight - e.clientY}px`; });
+        }
     }
 </script>
 </body>
